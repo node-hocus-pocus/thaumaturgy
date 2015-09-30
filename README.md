@@ -1,15 +1,17 @@
 # Thaumaturgy
 Build Node.js packages in AWS Lambda using AWS Lambda.
 
-You can use Node packages in AWS Lambda, but they have to be built for that environment.  Instead of spinning up an EC2 instance, 
-you can use Thaumaturgy to build Node packages for AWS Lambda - in AWS Lambda!
+You can use Node packages in AWS Lambda, but they have to be built for that environment. If you're on Windows, a Mac, or just a different version of Linux, you can
+run into problems trying to use Node packages built on your own machine.  Prior to Thaumaturgy, the best solution was to spin up an EC2 instance to rebuild the packages. That's both slow and tedious.
+
+Now you can just use Thaumaturgy. Thaumaturgy is an command-line tool that creates and utilizes an AWS Lambda that is specifically used to build Node packages when you need them. It uses NPM under the hood.
 
 Here's an example of what you can do:  
-`thaumaturgy build mysql2:0.15.8 --download /tmp/mysql2.zip`
+`thaumaturgy build mysql2:0.15.8 mongodb:~2.0.45 --download /tmp/mysql2.zip`
 
 Your output will look like this:
 ```
-Invoking Thaumaturgy Lambda in AWS with packages mysql2:0.15.8.
+Invoking Thaumaturgy Lambda in AWS with packages mysql2:0.15.8 mongodb:~2.0.45.
 Build completed successfully.
 Downloading.
 Download complete. File at /tmp/mysql2.zip
