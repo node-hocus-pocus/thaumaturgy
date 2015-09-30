@@ -1,0 +1,59 @@
+#!/usr/bin/env node
+
+var prompt = require('prompt');
+var fs = require('fs');
+var osenv = require('osenv');
+var path = require('path');
+var mkdirp = require('mkdirp');
+
+var credentials = {};
+var schema = {
+	properties: {
+		'awsAccessKey': {
+			required: true,
+			pattern : /^[a-zA-Z0-9]{20}$/, // 20 alphanumeric characters
+			description: 'AWS Access Key ID:'.cyan,
+			message: 'That does not seem to be a valid AWS Access Key.'
+		},
+		'awsSecretAccessKey': {
+			required: true,
+			pattern : /^[a-zA-Z0-9/+=]{40}$/, // 40 base64 characters
+			description: 'AWS Secret Access Key:'.cyan,
+			message: 'That does not seem to be a valid AWS Secret Access Key.'
+		},
+		'roleArn' :{
+			required : true,
+			description: 'AWS Role ARN:'.cyan,
+			pattern : /^arn:aws:iam.*/,
+			message : 'That does not look like a valid AWS ARN. Should start with arn:aws:iam'
+		},
+		's3Bucket' :{
+			required : true,
+			description: 'S3 Bucket:'.cyan
+		},
+		'npmVersion' :{
+			required : true,
+			description: 'NPM Version (2 or 3):'.cyan,
+			enum: ['2', '3'],
+			message : 'Must be version 2 or 3'
+		}
+	}
+}
+
+prompt.message = '';
+prompt.delimiter = '';
+prompt.start();
+prompt.get(schema, function(err, options) {
+	
+	if (err) {
+		console.error('\nConfiguration stopped.');
+	}
+	else {
+		var workDir = osenv.home() + '/.thaumaturgy';
+		mkdirp.sync(workDir);
+		console.log('Created dirctory: ' + workDir);
+		fs.writeFileSync(workDir + '/config.json',JSON.stringify(options,null,4));		
+		console.log('Wrote file: ' + workDir + '/config.json')
+		console.log('Thaumaturgy configure complete.')
+	}
+});

@@ -1,0 +1,15 @@
+#!/usr/bin/env node
+
+var program = require('commander');
+
+program
+	.version('0.0.1')
+	.description('Build a NPM package compatible with AWS Lambda using AWS Lambda.')
+	.command('configure', 'Configure Thaumaturgy with your AWS Credentials.')
+	.command('deploy', 'Deploy the Thaumaturgy builder lambda function to AWS Lambda.')
+	.command('build <packages>', "Build NPM packages using Thaumaturge in AWS Lambda. See 'thaumaturgy help build'.")
+	.parse(process.argv);
+
+if (!process.argv.slice(2).length) {
+	program.outputHelp();
+}

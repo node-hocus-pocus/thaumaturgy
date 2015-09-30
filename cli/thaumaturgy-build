@@ -1,0 +1,162 @@
+#!/usr/bin/env node
+
+var program = require('commander');
+var osenv = require('osenv');
+var fs = require('fs');
+var AWS = require('aws-sdk');
+var Promise = require('bluebird');
+
+var description = "Build NPM packages using Thaumaturgy in AWS Lambda." + 
+	"\n  Package list should be in a space-separated list of packages in the same format as a package.json file." + 
+	"\n\n  Examples:" + "\n\n  thaumaturgy build mkdirp:^0.5.1" + 
+	"\n  thaumaturgy build mysql2:0.15.8 mongodb:~2.0.45" + 
+	"\n  thaumaturgy build redis:latest --download /tmp/redis.zip" +
+	"\n  thaumaturgy build --file package.json";
+
+program
+	.option('-f, --file [path]', 'build all dependencies in a package.json file')
+	.option('-d, --download [path]', 'download build package from S3 and store at [path]')
+	.description(description)
+	.parse(process.argv);
+
+// Make sure we can read their thaumaturgy config file.
+var workDir = osenv.home() + '/.thaumaturgy';
+var config;
+try {
+	config = JSON.parse(fs.readFileSync(workDir + '/config.json'));
+} catch (err) {
+	console.error("Could not read configuration. Run 'thaumaturgy configure' first.");
+	process.exit(1);
+}
+
+// Make sure they've actually deployed thaumaturgy to AWS Lambda.
+if (typeof config.lambdaArn === 'undefined') {
+	console.error("Thaumaturgy does not seem to have been deployed to AWS Lambda yet. Run 'thaumaturgy deploy'.");
+	process.exit(1);
+}
+
+
+var packages = {};
+
+
+// Get the list of packages, either from the command line or the specified file.
+if (!program.file){ // Command line
+	var packageList = program.args;
+
+	// Check their package list to make sure they're valid.
+	if (!validPackages(packageList)) {
+		process.exit(1);
+	}
+
+	// Turn the list of packages into an object
+	packageList.forEach(function(package){
+		var pieces = package.split(':');
+
+		//Could be a url, which has a : we don't want to split, so rejoin
+		pieces = [pieces.shift(), pieces.join(':')];
+		packages[pieces[0]] = pieces[1];
+	});
+	console.log("Invoking Thaumaturgy Lambda in AWS with packages %s.", packageList.join(' '));
+
+} else { // Read dependencies from package.json-type file
+
+	var dependencies;
+	try {
+		var packagejson = JSON.parse(fs.readFileSync(program.file));
+		dependencies = packagejson.dependencies;
+	} catch (err ){
+		console.log('Could not read file at',program.file);
+		process.exit(1);
+	}
+	packages = dependencies;	
+
+	console.log("Invoking Thaumaturgy Lambda in AWS for dependencies in", program.file);
+}
+
+AWS.config.update({
+	accessKeyId: config.awsAccessKey,
+	secretAccessKey: config.awsSecretAccessKey,
+	region: 'us-east-1'
+});
+
+var lambda = new AWS.Lambda();
+
+var params = {
+	FunctionName : 'Thaumaturgy',
+	Payload : JSON.stringify({
+		bucket : config.s3Bucket,
+		packages : packages
+	})
+}
+
+lambda.invoke(params, function(err, data ){
+	if (err) {
+		console.error("Thaumaturgy reported an error:");
+		console.error(err);
+		process.exit(1);
+	}
+	else {
+		console.log('Build completed successfully.');	
+
+		if ( program.download ){
+			console.log('Downloading.')
+			var s3 = new AWS.S3();
+
+			var params = {
+				Bucket : config.s3Bucket,
+				Key : 'thaumaturgy.zip'
+			}
+
+			var file = fs.createWriteStream(program.download);
+			var pipe = s3.getObject(params).createReadStream().pipe(file);
+			pipe.on('error', function(err){
+				console.error('An error occurred downloading the file.');
+				console.error(err);
+				process.exit(1);
+			})
+			pipe.on('finish', function(){
+				console.log('Download complete. File at', program.download);
+			});
+		} else {
+			console.log('Results at: s3://' + config.s3Bucket + '/thaumaturgy.zip');
+			process.exit(0);
+		}
+	}
+});
+
+
+
+// Make sure list is in a valid package.json dependencies format.
+function validPackages(packageList) {
+	var valid = true;
+
+	packageList.forEach(function(package) {
+		if (package.indexOf(':') == -1) {
+			console.error(package + ' is not valid. Missing a :');
+			valid = false;
+		}
+		var pieces = package.split(':');
+
+		//Could be a url, which has a : we don't want to split, so rejoin
+		pieces = [pieces.shift(), pieces.join(':')];
+
+		var version = pieces[1];
+
+		//console.log(version);
+		if (!isValidVersionRange(version)) {
+			console.error(package + ' does not have a valid version.');
+			valid = false;
+		}
+	});
+	return valid;
+}
+
+function isValidVersionRange(v) {
+	return (/^[\^<>=~]{0,2}[0-9.x]+/).test(v) ||
+		/^https*:\/\/[a-z.\-0-9]+/.test(v) ||
+		v == "*" ||
+		v === "" ||
+		v.indexOf("git") === 0 ||
+		v === "latest" ||
+		false;
+}

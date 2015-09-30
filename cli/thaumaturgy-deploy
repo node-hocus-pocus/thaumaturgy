@@ -1,0 +1,106 @@
+#!/usr/bin/env node
+
+var prompt = require('prompt');
+var fs = require('fs');
+var osenv = require('osenv');
+var path = require('path');
+var archiver = require('archiver');
+var mkdirp = require('mkdirp');
+var AWS = require('aws-sdk');
+var Promise = require('bluebird');
+
+var workDir = osenv.home() + '/.thaumaturgy';
+var buildDir = workDir + '/build';
+
+var config;
+try {
+	config = JSON.parse(fs.readFileSync(workDir + '/config.json'));
+} catch (err){
+	console.error("Could not read configuration. Run 'thaumaturgy configure' first.");
+	process.exit(1);
+}
+
+build()
+	.then(deploy)
+	.then(function(deployResults){
+		config.lambdaArn = deployResults.FunctionArn;
+		fs.writeFileSync(workDir + '/config.json',JSON.stringify(config,null,4));
+		console.log('Thaumaturgy Lambda deployed to AWS Lambda. Ready to build packages.')
+	})
+	.catch(function(e){
+		console.error(e);
+	});
+
+function build(){
+	return new Promise( function( resolve, reject ){
+		console.log('Creating Thaumaturgy Lambda zip file.');
+		console.log('Using NPM %s.', config.npmVersion);
+
+		mkdirp.sync(buildDir)
+
+		var output = fs.createWriteStream(buildDir + '/thaumaturgy.zip');
+		var archive = archiver.create('zip', {}); // or archiver('zip', {});
+		archive.pipe(output);
+
+		output.on('close', function() {
+		  console.log('Thaumaturgy Lambda zip file built.');
+		  resolve();
+		});
+
+		archive.on('error', function(err) {
+		  reject(err);
+		});
+
+		var basePath = path.join(__dirname, '..');
+
+		archive.directory(basePath + '/lib/npm' + config.npmVersion,'node_modules/npm');
+		archive.directory(basePath + '/node_modules/nopt','node_modules/nopt');
+		archive.directory(basePath + '/node_modules/archiver','node_modules/archiver');
+		archive.file(basePath + '/package.json', { name : 'package.json'});
+		archive.file(basePath + '/index.js', { name : 'index.js'});
+		archive.finalize();
+	});
+}
+
+function deploy(){
+	console.log('Deploying Thaumaturgy Lambda to AWS Lambda.');
+
+	AWS.config.update({
+		accessKeyId: config.awsAccessKey,
+		secretAccessKey: config.awsSecretAccessKey,
+		region: 'us-east-1'
+	});
+
+	var lambda = new AWS.Lambda();
+
+	if (config.lambdaArn) { // update lambda
+		var params = {
+			FunctionName: 'Thaumaturgy',
+			ZipFile: fs.readFileSync(buildDir + '/thaumaturgy.zip')
+		}
+		return new Promise(function(resolve, reject) {
+			lambda.updateFunctionCode(params, function(err, data) {
+				if (err) reject(err);
+				else resolve(data);
+			});
+		});
+	} else { //new lambda
+		var params = {
+			FunctionName: 'Thaumaturgy',
+			Handler: 'index.handler',
+			Role: config.roleArn,
+			Runtime: 'nodejs',
+			MemorySize : 512,
+			Timeout : 60,
+			Code: {
+				ZipFile: fs.readFileSync(buildDir + '/thaumaturgy.zip')
+			}
+		}
+		return new Promise(function(resolve, reject) {
+			lambda.createFunction(params, function(err, data) {
+				if (err) reject(err);
+				else resolve(data);
+			});
+		});
+	}
+}
