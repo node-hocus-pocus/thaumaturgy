@@ -89,7 +89,7 @@ function deploy(){
 			FunctionName: 'Thaumaturgy',
 			Handler: 'index.handler',
 			Role: config.roleArn,
-			Runtime: 'nodejs',
+			Runtime: 'nodejs6.10',
 			MemorySize : 512,
 			Timeout : 60,
 			Code: {
